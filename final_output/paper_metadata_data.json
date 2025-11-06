@@ -1,0 +1,20 @@
+[
+  {
+    "paper_id": "a-novel-anaerobic-membrane-bioreactor-with-magnetotactic-bacte_2025_Chemical",
+    "meta_key": "cod_removal_efficiency",
+    "meta_value": "75-78%",
+    "meta_type": "string"
+  },
+  {
+    "paper_id": "a-novel-anaerobic-membrane-bioreactor-with-magnetotactic-bacte_2025_Chemical",
+    "meta_key": "methane_yield_improvement",
+    "meta_value": "1.16 times higher in R2 vs R1",
+    "meta_type": "string"
+  },
+  {
+    "paper_id": "a-novel-anaerobic-membrane-bioreactor-with-magnetotactic-bacte_2025_Chemical",
+    "meta_key": "file_path",
+    "meta_value": "/home/axlhuang/kb_create/test_output/markdown_only/A-novel-anaerobic-membrane-bioreactor-with-magnetotactic-bacte_2025_Chemical.md",
+    "meta_type": "string"
+  }
+]

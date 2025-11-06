@@ -1,0 +1,146 @@
+{
+  "paper": {
+    "id": "a-novel-anaerobic-membrane-bioreactor-with-magnetotactic-bacte_2025_Chemical",
+    "title": "A novel anaerobic membrane bioreactor with magnetotactic bacteria for organic sulfur pesticide wastewater treatment: Improvement of enzyme activities, refractory pollutants removal and methane yield",
+    "abstract": "The high refractory pollutant and heavy metal content in organic sulfur pesticide wastewater limits the removal of chemical oxygen demand (COD) and methane yield of conventional anaerobic membrane bioreactors (cAnMBRs) due to low enzyme activity. The objective of this study was to investigate the impact of magnetotactic bacteria (MTB) with excellent adsorption capabilities on the performance of the AnMBR system at different hydraulic retention times (HRTs). The MTB-assisted AnMBR (R2) showed improved COD removal efficiency (75 %-78 %) over c-AnMBR (R1) by 3 %-7% at HRT of 60, 48, and 36 h. Mancozeb and ethylenethiourea removal efficiencies of R2 were 7.1 %-25.0 % and 25.2 %-28.5 % higher than R1, respectively. The Mn2+ and Zn2+ of R2 were significantly reduced by 16.8 ± 1.9 % and 10.0 ± 0.8 % than that of R1, which were obtained at HRT of 36 h. The activity ratio of protease and dehydrogenase between R1 and R2 was 205.5 % and 419.6 %, respectively. Specific methane yield and specific methane activity of R2 were 1.16 and 1.13 times those of R1, respectively. A mathematical model correlating refractory pollutants, enzyme activity, and COD removal efficiency was established. This study innovatively developed a green MTB-assisted AnMBR technology that successfully removed refractory pollutants and heavy metals while enhancing enzyme activity and methane yield, reducing toxicity threat and improving energy recovery efficiency, along with providing both scientific basis and technical foundation for low-carbon operation of pesticide wastewater treatment.",
+    "publication_year": 2025,
+    "venue_id": "chemical_engineering_journal",
+    "doi": "10.1016/j.cej.2025.161397",
+    "language": "en",
+    "node_size": 30
+  },
+  "authors": [
+    {
+      "name": "Shiming Cui",
+      "affiliation": "Key Laboratory of Biotechnology and Bioresources Utilization, Ministry of Education, Dalian Minzu University, 18 Liaohe Road West, Dalian Economic and Technological Development Zone, Dalian 116600, China"
+    },
+    {
+      "name": "Dongxue Hu",
+      "affiliation": "Key Laboratory of Biotechnology and Bioresources Utilization, Ministry of Education, Dalian Minzu University, 18 Liaohe Road West, Dalian Economic and Technological Development Zone, Dalian 116600, China"
+    },
+    {
+      "name": "Zhaobo Chen",
+      "affiliation": "Key Laboratory of Biotechnology and Bioresources Utilization, Ministry of Education, Dalian Minzu University, 18 Liaohe Road West, Dalian Economic and Technological Development Zone, Dalian 116600, China"
+    },
+    {
+      "name": "Yifan Wang",
+      "affiliation": "Key Laboratory of Biotechnology and Bioresources Utilization, Ministry of Education, Dalian Minzu University, 18 Liaohe Road West, Dalian Economic and Technological Development Zone, Dalian 116600, China"
+    },
+    {
+      "name": "Jitao Yan",
+      "affiliation": "Key Laboratory of Biotechnology and Bioresources Utilization, Ministry of Education, Dalian Minzu University, 18 Liaohe Road West, Dalian Economic and Technological Development Zone, Dalian 116600, China"
+    },
+    {
+      "name": "Shuya Zhuang",
+      "affiliation": "Key Laboratory of Biotechnology and Bioresources Utilization, Ministry of Education, Dalian Minzu University, 18 Liaohe Road West, Dalian Economic and Technological Development Zone, Dalian 116600, China"
+    },
+    {
+      "name": "Bei Jiang",
+      "affiliation": "Key Laboratory of Biotechnology and Bioresources Utilization, Ministry of Education, Dalian Minzu University, 18 Liaohe Road West, Dalian Economic and Technological Development Zone, Dalian 116600, China"
+    },
+    {
+      "name": "Hui Ge",
+      "affiliation": "Key Laboratory of Biotechnology and Bioresources Utilization, Ministry of Education, Dalian Minzu University, 18 Liaohe Road West, Dalian Economic and Technological Development Zone, Dalian 116600, China"
+    },
+    {
+      "name": "Zihan Wang",
+      "affiliation": "Key Laboratory of Biotechnology and Bioresources Utilization, Ministry of Education, Dalian Minzu University, 18 Liaohe Road West, Dalian Economic and Technological Development Zone, Dalian 116600, China"
+    },
+    {
+      "name": "Pengcheng Zhang",
+      "affiliation": "Key Laboratory of Biotechnology and Bioresources Utilization, Ministry of Education, Dalian Minzu University, 18 Liaohe Road West, Dalian Economic and Technological Development Zone, Dalian 116600, China"
+    }
+  ],
+  "research_field": {
+    "id": "water_quality_engineering",
+    "field_name": "水处理工程",
+    "field_code": "WQE001",
+    "category": "环境工程",
+    "description": "专注于水处理技术、水质改善和水资源管理的研究领域"
+  },
+  "venue": {
+    "id": "chemical_engineering_journal",
+    "venue_name": "Chemical Engineering Journal",
+    "venue_type": "journal",
+    "publisher": "Elsevier",
+    "impact_factor": 16.744
+  },
+  "keywords": [
+    {
+      "id": "anaerobic_membrane_bioreactor",
+      "keyword_name": "Anaerobic membrane bioreactor (AnMBR)",
+      "field_id": "water_quality_engineering",
+      "is_primary": true,
+      "relevance_score": 1.0
+    },
+    {
+      "id": "magnetotactic_bacteria",
+      "keyword_name": "Magnetotactic bacteria (MTB)",
+      "field_id": "water_quality_engineering",
+      "is_primary": true,
+      "relevance_score": 0.9
+    },
+    {
+      "id": "organic_sulfur_pesticide",
+      "keyword_name": "Organic sulfur pesticide wastewater",
+      "field_id": "water_quality_engineering",
+      "is_primary": true,
+      "relevance_score": 0.8
+    },
+    {
+      "id": "refractory_pollutants",
+      "keyword_name": "Refractory pollutants",
+      "field_id": "water_quality_engineering",
+      "is_primary": false,
+      "relevance_score": 0.7
+    },
+    {
+      "id": "enzyme_activities",
+      "keyword_name": "Enzyme activities",
+      "field_id": "water_quality_engineering",
+      "is_primary": false,
+      "relevance_score": 0.7
+    },
+    {
+      "id": "methane_yield",
+      "keyword_name": "Methane yield",
+      "field_id": "water_quality_engineering",
+      "is_primary": false,
+      "relevance_score": 0.6
+    }
+  ],
+  "hrt_conditions": [
+    "60 h",
+    "48 h",
+    "36 h",
+    "24 h"
+  ],
+  "pollutants": [
+    "Mancozeb",
+    "Ethylenethiourea (ETU)",
+    "Mn2+",
+    "Zn2+"
+  ],
+  "enzyme_activities": [
+    {
+      "enzyme": "protease",
+      "activity": "205.5% higher in R2 vs R1"
+    },
+    {
+      "enzyme": "dehydrogenase",
+      "activity": "419.6% higher in R2 vs R1"
+    }
+  ],
+  "metadata": [
+    {
+      "meta_key": "cod_removal_efficiency",
+      "meta_value": "75-78%",
+      "meta_type": "string"
+    },
+    {
+      "meta_key": "methane_yield_improvement",
+      "meta_value": "1.16 times higher in R2 vs R1",
+      "meta_type": "string"
+    }
+  ]
+}
