@@ -1,0 +1,134 @@
+from .config import Config, setup_logging
+from .pdf_processor import PDFProcessor
+from .llm_parser import LLMParser
+from .data_importer import DataImporter
+from pathlib import Path
+import logging
+from typing import Optional
+
+logger = logging.getLogger(__name__)
+
+class KnowledgePipeline:
+    """统一的知识图谱构建管道"""
+    
+    def __init__(self, config: Optional[Config] = None):
+        self.config = config or Config()
+        self.pdf_processor = PDFProcessor(self.config)
+        self.llm_parser = LLMParser(self.config)
+        self.data_importer = DataImporter(self.config)
+        
+    def run_pdf_processing(self, input_dir: Optional[Path] = None, 
+                          output_dir: Optional[Path] = None) -> dict:
+        """运行PDF处理阶段"""
+        input_path = input_dir or self.config.paths.input_dir
+        output_path = output_dir or self.config.paths.output_dir / "markdown"
+        
+        logger.info("=== 开始PDF处理阶段 ===")
+        results = self.pdf_processor.process_batch(input_path, output_path)
+        logger.info(f"PDF处理完成: 成功 {results['processed']}, 失败 {results['failed']}")
+        # 若发生失败，立即抛出异常以中止后续流程
+        if results.get('failed', 0) > 0:
+            raise RuntimeError(f"PDF处理阶段出现失败: {results['failed']} 个文件")
+        return results
+    
+    def run_data_import(self, input_dir: Optional[Path] = None) -> dict:
+        """运行数据导入阶段"""
+        input_path = input_dir or self.config.paths.output_dir / "markdown"
+        
+        if not input_path.exists():
+            logger.error(f"Markdown目录不存在: {input_path}")
+            return {"imported": 0, "failed": 0, "errors": []}
+        
+        logger.info("=== 开始数据导入阶段 ===")
+        
+        # 获取所有markdown文件
+        md_files = list(input_path.glob("*.md"))
+        if not md_files:
+            logger.warning("未找到Markdown文件")
+            return {"imported": 0, "failed": 0, "errors": []}
+        
+        results = self.data_importer.import_batch(md_files)
+        logger.info(f"数据导入完成: 成功 {results['imported']}, 失败 {results['failed']}")
+        # 若发生失败，立即抛出异常以中止流程
+        if results.get('failed', 0) > 0:
+            raise RuntimeError(f"数据导入阶段出现失败: {results['failed']} 个文件")
+        return results
+    
+    def run_full_pipeline(self, skip_pdf: bool = False, skip_import: bool = False) -> dict:
+        """运行完整管道"""
+        logger.info("=== 开始完整知识图谱构建管道 ===")
+        
+        final_results = {
+            "pdf_processing": None,
+            "data_import": None,
+            "success": True
+        }
+        
+        try:
+            # PDF处理阶段
+            if not skip_pdf:
+                pdf_results = self.run_pdf_processing()
+                final_results["pdf_processing"] = pdf_results
+                
+                # 失败直接通过异常在上面抛出并被捕获
+            else:
+                logger.info("跳过PDF处理阶段")
+            
+            # 数据导入阶段
+            if not skip_import:
+                import_results = self.run_data_import()
+                final_results["data_import"] = import_results
+                
+                # 失败直接通过异常在上面抛出并被捕获
+            else:
+                logger.info("跳过数据导入阶段")
+            
+            logger.info("=== 知识图谱构建管道完成 ===")
+            return final_results
+            
+        except Exception as e:
+            logger.error(f"管道执行失败: {e}")
+            final_results["success"] = False
+            final_results["error"] = str(e)
+            return final_results
+
+def main():
+    """主函数"""
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="知识图谱构建管道")
+    parser.add_argument("--skip-pdf", action="store_true", help="跳过PDF处理")
+    parser.add_argument("--skip-import", action="store_true", help="跳过数据导入")
+    parser.add_argument("--log-level", default="INFO", help="日志级别")
+    
+    args = parser.parse_args()
+    
+    # 加载配置
+    config = Config()
+    config.setup_directories()
+    
+    # 设置日志
+    log_file = config.paths.logs_dir / "pipeline.log"
+    logger = setup_logging(log_file, args.log_level)
+    
+    # 运行管道
+    pipeline = KnowledgePipeline(config)
+    results = pipeline.run_full_pipeline(
+        skip_pdf=args.skip_pdf,
+        skip_import=args.skip_import
+    )
+    
+    # 输出结果
+    print("\n=== 执行结果 ===")
+    print(f"成功: {results['success']}")
+    if results.get('pdf_processing'):
+        pdf = results['pdf_processing']
+        print(f"PDF处理: 成功 {pdf['processed']}, 失败 {pdf['failed']}")
+    if results.get('data_import'):
+        imp = results['data_import']
+        print(f"数据导入: 成功 {imp['imported']}, 失败 {imp['failed']}")
+    if results.get('error'):
+        print(f"错误: {results['error']}")
+
+if __name__ == "__main__":
+    main()
