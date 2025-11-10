@@ -14,19 +14,63 @@
   research_field, doi, references(list)
 
 示例：
-  python scripts/llm_parse_md_to_json.py --md-dir /home/axlhuang/kb_create/output/markdown \
-    --out-dir /home/axlhuang/kb_create/test_output/json --limit 10
+  python scripts/llm_parse_md_to_json.py --md-dir /Downloads \
+    --out-dir /home/axlhuang/kb_create/data/output/json_full_parser --limit 10
 """
 
 import sys
 import json
-from pathlib import Path
 import argparse
+import os
+import re
+from pathlib import Path
+from typing import Optional
 
 sys.path.append(str(Path(__file__).resolve().parent.parent / 'src'))
 
 from core.config import Config, setup_logging
 from core.llm_parser import LLMParser
+
+
+DOI_PATTERN = re.compile(r"^10\.\d{4,9}/[A-Za-z0-9][A-Za-z0-9._;()/:\-]+$")
+
+
+def clean_and_validate_doi(doi: Optional[str]) -> Optional[str]:
+    """Return a cleaned, valid DOI or None.
+
+    Rules:
+    - Trim whitespace and trailing period.
+    - Must start with '10.' + 4-9 digits + '/' + at least 2 chars after '/'.
+    - Disallow extremely short suffixes like '10.1016/j'.
+    """
+    if not doi:
+        return None
+    s = str(doi).strip().rstrip('.')
+    # Quickly reject very short DOIs
+    if len(s) < 12:
+        return None
+    # Require at least 2 characters after '/'
+    parts = s.split('/', 1)
+    if len(parts) != 2 or len(parts[1]) < 2:
+        return None
+    # Regex validate common DOI charset patterns
+    if DOI_PATTERN.match(s):
+        return s
+    return None
+
+
+def atomic_write_json(out_path: Path, data: dict) -> None:
+    """Atomically write JSON to out_path to avoid half-written files.
+
+    Writes to out_path+'.tmp' then os.replace to final path.
+    """
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = out_path.with_suffix(out_path.suffix + '.tmp')
+    with open(tmp_path, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp_path, out_path)
 
 
 def parse_single(parser: LLMParser, md_file: Path, out_dir: Path) -> bool:
@@ -35,12 +79,15 @@ def parse_single(parser: LLMParser, md_file: Path, out_dir: Path) -> bool:
         if not data or not data.get('title'):
             print(f"❌ 解析失败或缺少标题: {md_file}")
             return False
-        # 兼容导入器的可选字段：记录源MD路径，导入器将其作为pdf_url写入
-        data.setdefault('pdf_path', str(md_file))
+        # pdf_path 仅在正文中明确出现且以 .pdf 结尾时保留；不再默认写入源MD路径
+        if data.get('pdf_path') and not str(data['pdf_path']).lower().endswith('.pdf'):
+            data['pdf_path'] = None
+        # 清理与校验 DOI，避免导入阶段触发唯一约束冲突
+        data['doi'] = clean_and_validate_doi(data.get('doi'))
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / f"{md_file.stem}.json"
-        with open(out_path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        # 原子写入，避免半写入导致的“{”残留
+        atomic_write_json(out_path, data)
         print(f"✅ 导出JSON: {out_path}")
         return True
     except Exception as e:

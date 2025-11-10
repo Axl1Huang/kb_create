@@ -24,7 +24,8 @@ class PathConfig:
     
     @classmethod
     def from_env(cls):
-        root = Path(os.getenv('PROJECT_ROOT', '/home/axlhuang/kb_create'))
+        # 默认使用当前环境的项目根目录 /root/kb_create
+        root = Path(os.getenv('PROJECT_ROOT', '/root/kb_create'))
         return cls(
             project_root=root,
             input_dir=Path(os.getenv('INPUT_DIR', root / 'data' / 'input')),
@@ -37,13 +38,14 @@ class PathConfig:
 class Config:
     def __init__(self, config_path: str = None):
         if config_path:
-            load_dotenv(dotenv_path=config_path)
+            # 允许项目内配置覆盖环境变量，确保路径一致
+            load_dotenv(dotenv_path=config_path, override=True)
         else:
             # 默认加载项目根目录下的 config/config.env
-            project_root = Path(os.getenv('PROJECT_ROOT', '/home/axlhuang/kb_create'))
+            project_root = Path(os.getenv('PROJECT_ROOT', '/root/kb_create'))
             env_path = project_root / 'config' / 'config.env'
             if env_path.exists():
-                load_dotenv(dotenv_path=env_path)
+                load_dotenv(dotenv_path=env_path, override=True)
             else:
                 print(f"警告: 默认配置文件 {env_path} 不存在，将依赖环境变量。")
 
@@ -56,9 +58,22 @@ class Config:
             sslmode=os.getenv('DB_SSLMODE', 'require')
         )
         self.paths = PathConfig.from_env()
-        self.mineru_path = os.getenv('MINERU_PATH', '/home/axlhuang/miniconda3/envs/mineru/bin/mineru')
+        # MinerU CLI路径（可留空，PDFProcessor会自动探测）
+        self.mineru_path = os.getenv('MINERU_PATH', '')
+        # MinerU 处理选项
+        self.mineru_method = os.getenv('MINERU_METHOD', 'auto')
+        self.mineru_lang = os.getenv('MINERU_LANG', 'en')
+        self.mineru_model_source = os.getenv('MINERU_MODEL_SOURCE', 'huggingface')
         self.dashscope_api_key = os.getenv('DASHSCOPE_API_KEY')
         self.dashscope_model = os.getenv('DASHSCOPE_MODEL', 'qwen3-max')
+        # PDF 处理行为配置（可通过环境覆盖）
+        self.pdf_output_format = os.getenv('PDF_OUTPUT_FORMAT', 'md')  # md 或 txt
+        self.pdf_text_only_default = os.getenv('PDF_TEXT_ONLY_DEFAULT', 'False').lower() == 'true'
+        self.pdf_fast_default = os.getenv('MINERU_FAST_DEFAULT', 'False').lower() == 'true'
+        self.pdf_cleanup_temp = os.getenv('PDF_CLEANUP_TEMP', 'True').lower() == 'true'
+        self.mineru_timeout_secs = int(os.getenv('MINERU_TIMEOUT_SECS', '600'))
+        # 可强制设备：cuda:0 / cpu；为空时自动探测
+        self.mineru_device = os.getenv('MINERU_DEVICE', '')
         
     def setup_directories(self):
         """创建必要的目录"""

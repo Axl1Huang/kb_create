@@ -143,9 +143,13 @@ test_output/
 final_output/
 processed/
 output/
+modelfiles/
+temp/
+data/input/
 
 # Database
 *.sql
+!数据库.sql
 
 # Compiled Python files
 *.pyc
@@ -157,3 +161,6 @@ output/
 
 # LLM parser files (temporary)
 *llm_parser.py
+
+# Secrets and local config
+config/config.env

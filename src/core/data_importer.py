@@ -1,5 +1,5 @@
 from .database import DatabaseManager
-from .llm_parser import LLMParser
+from utils.field_mapping import infer_research_field
 import logging
 from pathlib import Path
 import json
@@ -13,13 +13,23 @@ class DataImporter:
     def __init__(self, config):
         self.config = config
         self.db = DatabaseManager(config)
-        self.parser = LLMParser(config)
+        # 延迟加载解析器，避免在仅进行JSON导入时引入可选模块依赖
+        self.parser = None
     
     def import_markdown_file(self, md_file: Path) -> bool:
         """导入单个Markdown文件"""
         try:
             logger.info(f"处理Markdown文件: {md_file.name}")
             
+            # 延迟导入 LLMParser，仅在需要解析Markdown时使用
+            if self.parser is None:
+                try:
+                    from .llm_parser import LLMParser
+                    self.parser = LLMParser(self.config)
+                except Exception as e:
+                    logger.error(f"LLMParser 不可用，无法解析Markdown: {e}")
+                    return False
+
             # 解析Markdown内容
             paper_data = self.parser.parse_markdown_file(str(md_file))
             if not paper_data:
@@ -47,23 +57,56 @@ class DataImporter:
                 )
             
             # 获取或创建研究领域ID（表: research_field, 字段: field_name）
+            # 缺失时尝试根据 venue/keywords/title/abstract 补全映射；若仍无法确定，兜底为 "Environmental Engineering"
             field_id = None
-            if data.get('research_field'):
+            field_name = data.get('research_field') or infer_research_field(data) or 'Environmental Engineering'
+            if field_name:
                 field_id = self.db.get_or_create_id(
-                    'research_field', 'field_name', data['research_field']
+                    'research_field', 'field_name', field_name
                 )
             
-            # 插入论文基本信息（表: paper）
-            paper_id = self.db.get_or_create_id(
-                'paper', 'title', data['title'],
-                {
-                    'abstract': data.get('abstract', ''),
-                    'publication_year': data.get('year'),
-                    'venue_id': venue_id,
-                    'doi': data.get('doi'),
-                    'pdf_url': data.get('pdf_path')
-                }
-            )
+            # 插入/更新论文基本信息（表: paper）
+            # 优先使用 DOI 查重；无 DOI 时回退按 title 查重
+            paper_id = None
+            doi_val = data.get('doi')
+            if doi_val:
+                existing = self.db.execute_query(
+                    "SELECT id FROM paper WHERE doi = %s", (doi_val,)
+                )
+                if existing:
+                    paper_id = existing[0]['id']
+                    # 使用最新字段更新已存在记录，避免唯一约束冲突
+                    self.db.execute_update(
+                        """
+                        UPDATE paper
+                        SET title = %s,
+                            abstract = %s,
+                            publication_year = %s,
+                            venue_id = %s,
+                            pdf_url = %s
+                        WHERE id = %s
+                        """,
+                        (
+                            data['title'],
+                            data.get('abstract', ''),
+                            data.get('year'),
+                            venue_id,
+                            data.get('pdf_path'),
+                            paper_id
+                        )
+                    )
+                
+            if not paper_id:
+                paper_id = self.db.get_or_create_id(
+                    'paper', 'title', data['title'],
+                    {
+                        'abstract': data.get('abstract', ''),
+                        'publication_year': data.get('year'),
+                        'venue_id': venue_id,
+                        'doi': doi_val,
+                        'pdf_url': data.get('pdf_path')
+                    }
+                )
             
             # 插入作者信息（表: author, 字段: author_name；关联表: paper_author）
             if data.get('authors'):
@@ -84,7 +127,7 @@ class DataImporter:
                 for keyword in data['keywords']:
                     keyword_id = self.db.get_or_create_id(
                         'keyword', 'keyword_name', keyword,
-                        additional_fields={'field_id': field_id} if field_id else None
+                        additional_fields={'field_id': field_id}
                     )
                     # 建立论文-关键词关联
                     self.db.execute_update(
