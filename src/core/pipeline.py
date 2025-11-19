@@ -1,4 +1,4 @@
-from .config import Config, setup_logging
+from ..config import Config, setup_logging
 from .pdf_processor import PDFProcessor
 from .llm_parser import LLMParser
 from .data_importer import DataImporter
@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 class KnowledgePipeline:
     """统一的知识图谱构建管道"""
-    
+
     def __init__(self, config: Optional[Config] = None):
         self.config = config or Config()
         self.pdf_processor = PDFProcessor(self.config)
@@ -18,20 +18,22 @@ class KnowledgePipeline:
         self.data_importer = DataImporter(self.config)
         
     def run_pdf_processing(self, input_dir: Optional[Path] = None, 
-                          output_dir: Optional[Path] = None) -> dict:
+                          output_dir: Optional[Path] = None,
+                          limit_pdfs: Optional[int] = None,
+                          stats_every: Optional[int] = None) -> dict:
         """运行PDF处理阶段"""
         input_path = input_dir or self.config.paths.input_dir
         output_path = output_dir or self.config.paths.output_dir / "markdown"
         
         logger.info("=== 开始PDF处理阶段 ===")
-        results = self.pdf_processor.process_batch(input_path, output_path)
+        results = self.pdf_processor.process_batch(input_path, output_path, limit=limit_pdfs, stats_every=stats_every)
         logger.info(f"PDF处理完成: 成功 {results['processed']}, 失败 {results['failed']}")
         # 若发生失败，立即抛出异常以中止后续流程
         if results.get('failed', 0) > 0:
             raise RuntimeError(f"PDF处理阶段出现失败: {results['failed']} 个文件")
         return results
     
-    def run_data_import(self, input_dir: Optional[Path] = None) -> dict:
+    def run_data_import(self, input_dir: Optional[Path] = None, limit_md: Optional[int] = None) -> dict:
         """运行数据导入阶段"""
         input_path = input_dir or self.config.paths.output_dir / "markdown"
         
@@ -47,14 +49,16 @@ class KnowledgePipeline:
             logger.warning("未找到Markdown文件")
             return {"imported": 0, "failed": 0, "errors": []}
         
-        results = self.data_importer.import_batch(md_files)
+        results = self.data_importer.import_batch(md_files, limit=limit_md)
         logger.info(f"数据导入完成: 成功 {results['imported']}, 失败 {results['failed']}")
         # 若发生失败，立即抛出异常以中止流程
         if results.get('failed', 0) > 0:
             raise RuntimeError(f"数据导入阶段出现失败: {results['failed']} 个文件")
         return results
     
-    def run_full_pipeline(self, skip_pdf: bool = False, skip_import: bool = False) -> dict:
+    def run_full_pipeline(self, skip_pdf: bool = False, skip_import: bool = False,
+                          limit_pdfs: Optional[int] = None, limit_md: Optional[int] = None,
+                          stats_every: Optional[int] = None) -> dict:
         """运行完整管道"""
         logger.info("=== 开始完整知识图谱构建管道 ===")
         
@@ -67,7 +71,7 @@ class KnowledgePipeline:
         try:
             # PDF处理阶段
             if not skip_pdf:
-                pdf_results = self.run_pdf_processing()
+                pdf_results = self.run_pdf_processing(limit_pdfs=limit_pdfs, stats_every=stats_every)
                 final_results["pdf_processing"] = pdf_results
                 
                 # 失败直接通过异常在上面抛出并被捕获
@@ -76,7 +80,7 @@ class KnowledgePipeline:
             
             # 数据导入阶段
             if not skip_import:
-                import_results = self.run_data_import()
+                import_results = self.run_data_import(limit_md=limit_md)
                 final_results["data_import"] = import_results
                 
                 # 失败直接通过异常在上面抛出并被捕获
@@ -100,6 +104,9 @@ def main():
     parser.add_argument("--skip-pdf", action="store_true", help="跳过PDF处理")
     parser.add_argument("--skip-import", action="store_true", help="跳过数据导入")
     parser.add_argument("--log-level", default="INFO", help="日志级别")
+    parser.add_argument("--limit-pdfs", type=int, default=None, help="仅处理前N个PDF")
+    parser.add_argument("--limit-md", type=int, default=None, help="仅导入前N个Markdown")
+    parser.add_argument("--stats-every", type=int, default=None, help="每N个文件输出阶段统计并写入logs/pdf_progress.jsonl")
     
     args = parser.parse_args()
     
@@ -115,7 +122,10 @@ def main():
     pipeline = KnowledgePipeline(config)
     results = pipeline.run_full_pipeline(
         skip_pdf=args.skip_pdf,
-        skip_import=args.skip_import
+        skip_import=args.skip_import,
+        limit_pdfs=args.limit_pdfs,
+        limit_md=args.limit_md,
+        stats_every=args.stats_every
     )
     
     # 输出结果

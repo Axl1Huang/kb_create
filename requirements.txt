@@ -5,3 +5,4 @@ requests>=2.31.0
 dashscope
 certifi>=2023.7.22
 urllib3>=2.0.0
+tqdm>=4.66.0

@@ -1,0 +1,25 @@
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://dashscope.aliyuncs.com/api/v2/apps/claude-code-proxy",
+    "ANTHROPIC_MODEL": "qwen3-coder-plus",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "qwen3-coder-plus"
+  },
+  "allow": [
+    "Read(./**)",
+    "Edit(./**)",
+    "Write(./**)",
+    "Grep(**)",
+    "Glob(**)",
+    "LS(**)",
+    "Bash(*)"
+  ],
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./secrets/**)",
+      "Read(./config/credentials.json)",
+      "Read(./build)"
+    ]
+  }
+}

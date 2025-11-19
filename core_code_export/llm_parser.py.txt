@@ -1,0 +1,411 @@
+import os
+import re
+import json
+import logging
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import requests
+
+logger = logging.getLogger(__name__)
+
+
+def _strip_code_fences(text: str) -> str:
+    text = text.strip()
+    if text.startswith("```") and text.endswith("```"):
+        return text.strip("`\n")
+    return text
+
+
+def _first_heading(text: str) -> str:
+    m = re.search(r"^\s*#\s+(.*)$", text, re.MULTILINE)
+    return m.group(1).strip() if m else ""
+
+
+def _section_text(text: str, names: List[str]) -> str:
+    # Find section starting with any header name, stop at next heading
+    for name in names:
+        pat = rf"^\s*#\s*{re.escape(name)}\s*$"
+        m = re.search(pat, text, re.MULTILINE | re.IGNORECASE)
+        if m:
+            start = m.end()
+            next_m = re.search(r"^\s*#\s+", text[start:], re.MULTILINE)
+            end = start + (next_m.start() if next_m else len(text))
+            return text[start:end].strip()
+    return ""
+
+
+def _extract_authors(text: str) -> List[str]:
+    # Heuristics: authors appear near the top, often a line after title
+    lines = text.splitlines()
+    title_idx = None
+    for i in range(min(15, len(lines))):
+        if re.match(r"^\s*#\s+", lines[i]):
+            title_idx = i
+            break
+    if title_idx is None:
+        return []
+    for j in range(title_idx + 1, min(title_idx + 8, len(lines))):
+        line = lines[j].strip()
+        if not line or line.startswith('#'):
+            continue
+        # Filter affiliation-like tokens
+        cleaned = re.sub(r"\s*[*^⁎]+", "", line)
+        parts = [p.strip() for p in re.split(r",|;", cleaned) if p.strip()]
+        authors = [p for p in parts if re.search(r"[A-Za-z]", p) and not re.search(r"\d", p)]
+        if authors:
+            return authors
+    return []
+
+
+def _extract_keywords(text: str) -> List[str]:
+    m = re.search(r"^\s*Keywords\s*:?\s*(.+)$", text, re.MULTILINE | re.IGNORECASE)
+    if not m:
+        return []
+    line = m.group(1).strip()
+    toks = [t.strip().strip(',') for t in re.split(r"[,;]", line) if t.strip()]
+    return toks
+
+
+def _extract_doi(text: str) -> Optional[str]:
+    m = re.search(r"10\.[0-9]{4,9}/\S+", text)
+    return m.group(0).strip().rstrip('.') if m else None
+
+
+def _extract_year_from_doi(doi: Optional[str]) -> Optional[int]:
+    if not doi:
+        return None
+    m = re.search(r"/(19|20)\d{2}([\./]|$)", doi)
+    if m:
+        try:
+            return int(m.group(0).strip('/').split('.')[0])
+        except Exception:
+            return None
+    return None
+
+
+def _map_venue_from_suffix(suffix: str) -> Optional[str]:
+    mapping = [
+        (r"Marine-?Poll", "Marine Pollution Bulletin"),
+        (r"Chemical-?Eng", "Chemical Engineering Journal"),
+        (r"Journal-of-Analyt", "Journal of Analytical Chemistry"),
+        (r"Radiation-Physics-and-Chemistry", "Radiation Physics and Chemistry"),
+    ]
+    for pat, name in mapping:
+        if re.search(pat, suffix, re.IGNORECASE):
+            return name
+    # Fallback: replace dashes with spaces
+    suffix = re.sub(r"[-_]+", " ", suffix).strip()
+    if suffix:
+        return suffix
+    return None
+
+
+def _parse_filename_for_venue_year(file_path: Path) -> (Optional[str], Optional[int]):
+    stem = file_path.stem
+    # Pattern: <title>_<year>_<venue>
+    m = re.search(r"_(20\d{2}|19\d{2})_(.+)$", stem)
+    if m:
+        year = int(m.group(1))
+        venue_suffix = m.group(2)
+        venue = _map_venue_from_suffix(venue_suffix)
+        return venue, year
+    # If only year present
+    m2 = re.search(r"_(20\d{2}|19\d{2})", stem)
+    if m2:
+        return None, int(m2.group(1))
+    # Fallback: detect any year token anywhere (e.g., " - 2024 - ", spaces, hyphens)
+    m3 = re.search(r"(19|20)\d{2}", stem)
+    if m3:
+        try:
+            return None, int(m3.group(0))
+        except Exception:
+            pass
+    return None, None
+
+
+def _extract_references(text: str) -> List[str]:
+    refs = _section_text(text, ["References", "参考文献"])
+    if not refs:
+        return []
+    lines = [ln.strip() for ln in refs.splitlines() if ln.strip()]
+    return lines[:50]
+
+
+def _infer_research_field(title: str, keywords: List[str], venue: Optional[str], abstract: str) -> Optional[str]:
+    low_kw = [k.lower() for k in keywords]
+    low_title = (title or '').lower()
+    low_abs = (abstract or '').lower()
+    low_venue = (venue or '').lower()
+
+    if 'marine pollution bulletin' in low_venue:
+        return 'Marine Pollution'
+    if any('marine' in k or 'pollution' in k for k in low_kw):
+        return 'Marine Pollution'
+    if 'marine' in low_title or 'pollution' in low_title:
+        return 'Marine Pollution'
+    if 'wastewater' in low_kw or 'wastewater' in low_title or 'wastewater' in low_abs:
+        return 'Wastewater Treatment'
+    if 'chemical engineering journal' in low_venue:
+        return 'Chemical Engineering'
+    return None
+
+
+class LLMParser:
+    """Markdown 解析器：优先使用稳健启发式，必要时调用LLM补全。
+
+    - 本地优先：当 USE_LOCAL_MODEL=true 且 OLLAMA_URL 可用时，用本地模型
+    - 云端回退：当本地不可用且具备 DASHSCOPE_API_KEY 时，使用云端模型
+    - 启发式兜底：当模型不可用或响应不合规时，使用启发式结果
+    """
+
+    def __init__(self, config):
+        self.config = config
+        self.use_local = os.getenv('USE_LOCAL_MODEL', 'true').lower() == 'true'
+        self.ollama_url = os.getenv('OLLAMA_URL', 'http://127.0.0.1:11434')
+        self.local_model = os.getenv('MODEL', 'qwen3:30b')
+        self.local_model_fallback = os.getenv('LOCAL_MODEL_FALLBACK', 'qwen2.5:7b-instruct')
+        self.cloud_model = os.getenv('DASHSCOPE_MODEL', 'qwen3-max')
+        self.api_key = os.getenv('DASHSCOPE_API_KEY')
+        # 超时与性能参数（可通过环境变量覆盖）
+        self.ollama_timeout = int(os.getenv('OLLAMA_TIMEOUT', '180'))
+        self.ollama_connect_timeout = int(os.getenv('OLLAMA_CONNECT_TIMEOUT', '5'))
+        self.num_ctx = int(os.getenv('OLLAMA_NUM_CTX', '2048'))
+        self.num_predict = int(os.getenv('OLLAMA_NUM_PREDICT', '512'))
+        self.keep_alive = os.getenv('OLLAMA_KEEP_ALIVE', '2h')
+        # 提示截断长度（避免过长导致首token延迟或空响应）
+        self.prompt_trunc = int(os.getenv('OLLAMA_PROMPT_TRUNC', '8000'))
+
+    def _ollama_available(self) -> bool:
+        try:
+            r = requests.get(f"{self.ollama_url}/api/tags", timeout=2)
+            return r.status_code == 200
+        except Exception:
+            return False
+
+    def _call_ollama(self, prompt: str) -> Optional[Dict[str, Any]]:
+        def _generate_with_model(model_name: str) -> Optional[Dict[str, Any]]:
+            try:
+                def _one_request(use_json_format: bool, prompt_text: str, num_predict: int, num_ctx: int) -> Optional[str]:
+                    payload = {
+                        "model": model_name,
+                        "prompt": prompt_text,
+                        "stream": False,
+                        "keep_alive": self.keep_alive,
+                        "options": {
+                            "temperature": 0.2,
+                            "num_ctx": num_ctx,
+                            "num_predict": num_predict,
+                        },
+                        # 通过 system 强化仅输出 JSON
+                        "system": "You are a JSON-only parser. Respond with STRICT JSON object only. No prose.",
+                    }
+                    if use_json_format:
+                        payload["format"] = "json"
+                    r = requests.post(
+                        f"{self.ollama_url}/api/generate",
+                        json=payload,
+                        timeout=(self.ollama_connect_timeout, self.ollama_timeout),
+                    )
+                    if r.status_code != 200:
+                        logger.warning(f"Ollama响应非200: {r.status_code}")
+                        return None
+                    try:
+                        obj = r.json()
+                        text = str(obj.get('response', '')).strip()
+                    except Exception:
+                        text = _strip_code_fences(r.text.strip())
+                    return text or None
+
+                # 尝试1：JSON格式，原始设置
+                text = _one_request(True, prompt, self.num_predict, self.num_ctx)
+                if not text:
+                    logger.info(f"主模型空响应，准备重试: model={model_name}, json_format=True")
+                    # 尝试2：去掉JSON格式限制，缩短提示与预测长度
+                    short_prompt = prompt[: max(1024, self.prompt_trunc // 2)]
+                    text = _one_request(False, short_prompt, max(64, self.num_predict // 2), max(512, self.num_ctx // 2))
+                if not text:
+                    return None
+                try:
+                    return json.loads(text)
+                except Exception:
+                    m = re.search(r"\{[\s\S]*\}", text)
+                    if m:
+                        try:
+                            return json.loads(m.group(0))
+                        except Exception:
+                            logger.warning("Ollama返回非严格JSON且提取失败")
+                            return None
+                    logger.warning("Ollama返回空或不可解析的响应文本")
+                    return None
+            except requests.exceptions.ReadTimeout:
+                logger.warning(f"Ollama读取超时 (model={model_name}, timeout={self.ollama_timeout}s)")
+                return None
+            except Exception as e:
+                logger.warning(f"Ollama调用失败 (model={model_name}): {e}")
+                return None
+
+        # 先尝试主模型，失败则回退到7B模型
+        res = _generate_with_model(self.local_model)
+        if res is None and self.local_model_fallback:
+            logger.info(f"尝试回退本地模型: {self.local_model_fallback}")
+            res = _generate_with_model(self.local_model_fallback)
+        return res
+
+    def _call_dashscope(self, prompt: str) -> Optional[Dict[str, Any]]:
+        if not self.api_key:
+            return None
+        try:
+            import dashscope
+            rsp = dashscope.Generation.call(
+                model=self.cloud_model,
+                prompt=prompt,
+                api_key=self.api_key,
+                result_format='text',
+            )
+            text = _strip_code_fences(str(rsp)).strip()
+            try:
+                return json.loads(text)
+            except Exception:
+                m = re.search(r"\{[\s\S]*\}", text)
+                if m:
+                    return json.loads(m.group(0))
+                return None
+        except Exception as e:
+            logger.warning(f"DashScope调用失败: {e}")
+            return None
+
+    def _build_prompt(self, text: str) -> str:
+        # Truncate excessively long text to keep latency bounded
+        truncated = text[: self.prompt_trunc]
+        schema = {
+            "title": "string",
+            "authors": ["string"],
+            "abstract": "string",
+            "keywords": ["string"],
+            "year": "int|null",
+            "venue": "string|null",
+            "research_field": "string|null",
+            "doi": "string|null",
+            "references": ["string"],
+            "pdf_path": "string|null",
+        }
+        prompt = (
+            "You are an academic parser. Extract core metadata from the Markdown "
+            "and return ONLY a compact JSON object with the following fields: "
+            f"{json.dumps(schema)}. Do not include any commentary or code fences.\n\n"
+            "Markdown:\n" + truncated + "\n\n"
+            "Rules:\n"
+            "- If a field is unknown, set null.\n"
+            "- Authors must be an array of names.\n"
+            "- Keywords must be an array.\n"
+            "- Venue is the journal or conference name (not the publisher).\n"
+            "- Strict JSON only."
+        )
+        return prompt
+
+    def parse_markdown_text(self, text: str, md_path: Optional[Path] = None) -> Dict[str, Any]:
+        # Heuristics first
+        title = _first_heading(text)
+        abstract = _section_text(text, ["Abstract", "A B S T R A C T", "摘要"])
+        abstract = re.sub(r"\s+", " ", abstract).strip()[:4000] if abstract else ""
+        authors = _extract_authors(text)
+        keywords = _extract_keywords(text)
+        doi = _extract_doi(text)
+        references = _extract_references(text)
+
+        venue = None
+        year = None
+        if md_path is not None:
+            v, y = _parse_filename_for_venue_year(md_path)
+            venue = v or venue
+            year = y or year
+
+        # Year from DOI if filename lacks year
+        if year is None:
+            y2 = _extract_year_from_doi(doi)
+            if y2:
+                year = y2
+
+        # Initial result
+        result = {
+            "title": title or None,
+            "authors": authors or [],
+            "abstract": abstract or None,
+            "keywords": keywords or [],
+            "year": year,
+            "venue": venue,
+            "research_field": None,
+            "doi": doi,
+            "references": references or [],
+            "pdf_path": None,
+        }
+
+        # Infer research field if possible
+        if result["research_field"] is None:
+            rf = _infer_research_field(result["title"] or '', result["keywords"], result["venue"], result["abstract"] or '')
+            if rf:
+                result["research_field"] = rf
+
+        # Try LLM to refine if available
+        llm_obj: Optional[Dict[str, Any]] = None
+        prompt = self._build_prompt(text)
+        if self.use_local and self._ollama_available():
+            llm_obj = self._call_ollama(prompt)
+        elif self.api_key:
+            llm_obj = self._call_dashscope(prompt)
+
+        # Merge: prefer LLM non-empty fields
+        def _nonempty(val):
+            return val is not None and val != "" and val != []
+        def pick(a, b):
+            return b if _nonempty(b) else a
+        def prefer_heuristic(a, b):
+            # 保留启发式结果，只有在启发式为空时才采纳LLM值
+            return a if _nonempty(a) else (b if _nonempty(b) else a)
+        def to_int_safe(v):
+            if v is None:
+                return None
+            try:
+                if isinstance(v, int):
+                    return v
+                if isinstance(v, str) and v.strip().isdigit():
+                    return int(v.strip())
+            except Exception:
+                return None
+            return None
+
+        if llm_obj:
+            try:
+                result["title"] = pick(result["title"], llm_obj.get("title"))
+                result["authors"] = pick(result["authors"], llm_obj.get("authors")) or []
+                result["abstract"] = pick(result["abstract"], llm_obj.get("abstract"))
+                result["keywords"] = pick(result["keywords"], llm_obj.get("keywords")) or []
+                # year/doi/venue 采用“启发式优先、LLM补缺”
+                llm_year = to_int_safe(llm_obj.get("year"))
+                result["year"] = prefer_heuristic(result["year"], llm_year)
+                result["venue"] = prefer_heuristic(result["venue"], llm_obj.get("venue"))
+                result["doi"] = prefer_heuristic(result["doi"], llm_obj.get("doi"))
+                result["research_field"] = pick(result["research_field"], llm_obj.get("research_field"))
+                # references and pdf_path are optional
+                refs = llm_obj.get("references")
+                if isinstance(refs, list) and refs:
+                    result["references"] = refs[:50]
+                pdfp = llm_obj.get("pdf_path")
+                if isinstance(pdfp, str) and pdfp.lower().endswith('.pdf'):
+                    result["pdf_path"] = pdfp
+            except Exception as e:
+                logger.warning(f"LLM结果合并失败: {e}")
+
+        # Final normalization
+        if result["abstract"]:
+            result["abstract"] = result["abstract"].strip()
+        if result["title"]:
+            result["title"] = result["title"].strip()
+
+        return result
+
+    def parse_markdown_file(self, md_path_str: str) -> Dict[str, Any]:
+        md_path = Path(md_path_str)
+        text = md_path.read_text(encoding='utf-8', errors='ignore')
+        return self.parse_markdown_text(text, md_path=md_path)

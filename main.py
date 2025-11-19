@@ -16,11 +16,12 @@ from pathlib import Path
 # 添加src目录到Python路径
 sys.path.insert(0, str(Path(__file__).parent / 'src'))
 
-from core import Config, KnowledgePipeline, setup_logging
+from src.core.config import Config, UnifiedConfig, setup_logging
+from src.core.pipeline import KnowledgePipeline
 
 def main():
     import argparse
-    
+
     parser = argparse.ArgumentParser(
         description="学术论文知识图谱构建工具",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -32,87 +33,112 @@ def main():
   python main.py --log-level DEBUG        # 调试模式运行
         """
     )
-    
+
     parser.add_argument(
         "--skip-pdf",
         action="store_true",
         help="跳过PDF处理阶段（假设已有Markdown文件）"
     )
-    
+
     parser.add_argument(
-        "--skip-import", 
+        "--skip-import",
         action="store_true",
         help="跳过数据导入阶段（只生成Markdown文件）"
     )
-    
+
     parser.add_argument(
         "--log-level",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         default="INFO",
         help="设置日志级别（默认: INFO）"
     )
-    
+
+    parser.add_argument(
+        "--limit-pdfs",
+        type=int,
+        default=None,
+        help="仅处理前N个PDF（用于大批量测试/分批监控）"
+    )
+
+    parser.add_argument(
+        "--limit-md",
+        type=int,
+        default=None,
+        help="仅导入前N个Markdown（用于大批量测试/分批监控）"
+    )
+
+    parser.add_argument(
+        "--stats-every",
+        type=int,
+        default=None,
+        help="每 N 个文件输出阶段统计并写入 logs/pdf_progress.jsonl"
+    )
+
     parser.add_argument(
         "--config",
         type=Path,
         help="指定配置文件路径（默认: config/config.env）"
     )
-    
+
     args = parser.parse_args()
-    
+
     try:
         # 加载配置
         config = Config(config_path=args.config)
         config.setup_directories()
-        
+
         # 设置日志
         log_file = config.paths.logs_dir / "knowledge_graph.log"
         logger = setup_logging(log_file, args.log_level)
-        
+
         logger.info("=" * 50)
         logger.info("学术论文知识图谱构建工具")
         logger.info("=" * 50)
-        
+
         # 创建管道
         pipeline = KnowledgePipeline(config)
-        
+
         # 运行管道
         results = pipeline.run_full_pipeline(
             skip_pdf=args.skip_pdf,
-            skip_import=args.skip_import
+            skip_import=args.skip_import,
+            limit_pdfs=args.limit_pdfs,
+            limit_md=args.limit_md,
+            stats_every=args.stats_every
         )
-        
+
         # 输出结果
         print("\n" + "=" * 50)
         print("执行结果:")
         print("=" * 50)
-        
+
         if results['success']:
             print("✅ 管道执行成功")
         else:
             print("❌ 管道执行失败")
-            
+
         if results.get('pdf_processing'):
             pdf = results['pdf_processing']
             print(f"📄 PDF处理: {pdf['processed']} 成功, {pdf['failed']} 失败")
-            
+
         if results.get('data_import'):
             imp = results['data_import']
             print(f"💾 数据导入: {imp['imported']} 成功, {imp['failed']} 失败")
-            
+
         if results.get('error'):
             print(f"❗ 错误: {results['error']}")
-            
+
         print("=" * 50)
-        
+
         return 0 if results['success'] else 1
-        
+
     except KeyboardInterrupt:
         print("\n⚠️  用户中断执行")
         return 130
     except Exception as e:
         print(f"\n❌ 致命错误: {e}")
         return 1
+
 
 if __name__ == "__main__":
     sys.exit(main())
